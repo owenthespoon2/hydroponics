@@ -23,6 +23,7 @@ hydroponics/
 │   └── 2026/2026-11-19-1558/
 ├── runs/                 # one file per crop run, start to finish (auto-synced)
 ├── docs/
+│   ├── build-journal.md      # how the Pi rig was built, step by step, with photos
 │   ├── entry-format.md       # format of posts and runs, and the sync contract
 │   ├── heating-project.md    # the heater/thermostat project and its deadline
 │   ├── crop-profiles.md      # what each crop needs
@@ -32,7 +33,7 @@ hydroponics/
 │   ├── device-api.md         # how the Pi talks to my website (data, photos, commands)
 │   └── wiring-diagrams.md    # Pi, probe, relay, heater wiring and safety rules
 ├── hardware/             # CAD and printed parts (future)
-├── firmware/             # Pi and ESP32 code (future)
+├── firmware/             # Pi code: probe reader, live camera view
 └── data/                 # sensor readings (future, not created yet)
 ```
 

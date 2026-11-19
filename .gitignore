@@ -24,3 +24,7 @@ Thumbs.db
 
 # NOTE: photos (*.jpg, *.png) are deliberately NOT ignored.
 # The daily log lives in log/ and its photos are part of the record.
+
+# AI supervisor kit runner data, and Claude Code worktrees
+.kit-data/
+.claude/worktrees/
