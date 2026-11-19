@@ -10,6 +10,12 @@ A long-term, hands-on hydroponics project in Nagaoka, Niigata. It starts as a si
 ![Latest photo](log/2026/2026-11-19-1558/01.jpg)
 <!-- status:end -->
 
+<!-- build:start -->
+**Latest build step (2026-11-20): relay wired and working.** The 2-channel relay module is wired to the Pi (control on GPIO 5, active-low, off at boot). It clicks on and off from a button on the Pi's live camera page, switches itself off after 10 minutes, and turns off if the page stops. Next: a USB load test, then the heater. Every step so far: [build journal](docs/build-journal.md).
+
+![Relay wired to the Pi](docs/images/2026-11-20-relay-wired.jpg)
+<!-- build:end -->
+
 ## How this repo updates
 
 I post updates (text, photos, files) on my website, **Spoon Archive**, under *Projects → Hydroponic System 1*. A sync copies each post here automatically, so `log/` and `runs/` are never edited by hand. The exact format is in [docs/entry-format.md](docs/entry-format.md).

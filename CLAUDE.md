@@ -21,4 +21,5 @@ Work is run with the AI supervisor kit (`C:\Projects\ai-supervisor-kit`): an Opu
 - Private data: never put device tokens, Wi-Fi details, IP addresses, the website URL or personal details in code, tests, commits or the board. Fictional values only.
 - Protected files (never modify or stage): `log/`, `runs/`, `data/` (website sync owns them), `docs/device-api.md` (contract, owner changes it first), `docs/KIT-RULES.md`, `kit.config.json`.
 - Money: Claude subscription only. Never add API keys or enable paid usage. Never buy parts.
+- Docs: after each finished build step, add a dated entry with photos to `docs/build-journal.md` and replace the `<!-- build:start -->` block in `README.md` with that step (one photo, two sentences). Never edit the `status:` block (the website sync owns it).
 - Git: commit with a `Co-Authored-By` line. Never push without the owner saying so.
