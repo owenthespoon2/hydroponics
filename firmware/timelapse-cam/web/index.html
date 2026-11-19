@@ -1,0 +1,114 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>hydro-pi camera</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{margin:0;background:#111;color:#eee;font-family:sans-serif;text-align:center}
+img{max-width:100vw;max-height:80vh;object-fit:contain}
+#temp{padding:6px;font-size:1.2em}
+#settings{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center;padding:8px}
+#settings label{display:flex;flex-direction:column;font-size:.85em}
+#msg{min-height:1.2em;color:#f88}
+#device{padding:8px}#devmsg{min-height:1.2em;padding:4px}
+</style></head><body>
+<div id="temp">water: ...</div>
+<img id="stream" alt="live view">
+<div id="msg"></div>
+<form id="settings" onsubmit="return false"></form>
+<div id="device">
+<button id="btn-reboot" type="button">Reboot</button>
+<button id="btn-shutdown" type="button">Shut down</button>
+</div>
+<div id="devmsg"></div>
+<script>
+const API_BASE = "";
+
+document.getElementById('stream').src = API_BASE + '/stream';
+
+async function upd(){
+  try{
+    const r = await fetch(API_BASE + '/temp'); const j = await r.json();
+    const parts = Object.entries(j.probes).map(([k,v]) =>
+      k + ': ' + (v === null ? 'no reading' : v.toFixed(2) + ' °C'));
+    document.getElementById('temp').textContent =
+      parts.length ? parts.join('   ') : 'no probes found';
+  }catch(e){document.getElementById('temp').textContent='temp unavailable';}
+}
+upd(); setInterval(upd, 5000);
+
+const msg = document.getElementById('msg');
+
+function readValue(item, el){
+  if(item.type === 'bool') return el.checked;
+  if(item.type === 'int') return parseInt(el.value, 10);
+  if(item.type === 'float') return parseFloat(el.value);
+  return el.value;
+}
+
+async function apply(item, el){
+  msg.textContent = '';
+  try{
+    const r = await fetch(API_BASE + '/api/camera/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({[item.key]: readValue(item, el)})
+    });
+    const j = await r.json();
+    if(!r.ok){ msg.textContent = j.error || 'error'; loadSettings(); }
+  }catch(e){ msg.textContent = 'could not reach the Pi'; }
+}
+
+function buildField(item, value){
+  const label = document.createElement('label');
+  label.append(item.label);
+  let el;
+  if(item.type === 'choice'){
+    el = document.createElement('select');
+    for(const c of item.choices){
+      const o = document.createElement('option');
+      o.value = o.textContent = c;
+      el.append(o);
+    }
+    el.value = value;
+  }else if(item.type === 'bool'){
+    el = document.createElement('input');
+    el.type = 'checkbox';
+    el.checked = value;
+  }else{
+    el = document.createElement('input');
+    el.type = 'number';
+    el.min = item.min; el.max = item.max; el.step = item.step;
+    el.value = value;
+  }
+  el.addEventListener('change', () => apply(item, el));
+  label.append(el);
+  return label;
+}
+
+async function loadSettings(){
+  try{
+    const r = await fetch(API_BASE + '/api/camera/settings');
+    const j = await r.json();
+    const form = document.getElementById('settings');
+    form.replaceChildren(...j.schema.map(item => buildField(item, j.values[item.key])));
+  }catch(e){ msg.textContent = 'settings unavailable'; }
+}
+loadSettings();
+
+async function deviceAction(name, question, done){
+  if(!confirm(question)) return;
+  try{
+    const r = await fetch(API_BASE + '/api/device/' + name, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirm: true})
+    });
+    const j = await r.json();
+    document.getElementById('devmsg').textContent = r.ok ? done : (j.error || 'error');
+  }catch(e){ msg.textContent = 'could not reach the Pi'; }
+}
+document.getElementById('btn-reboot').addEventListener('click', () =>
+  deviceAction('reboot', 'Reboot the Pi?', 'Rebooting, refresh in about a minute.'));
+document.getElementById('btn-shutdown').addEventListener('click', () =>
+  deviceAction('shutdown', 'Shut down the Pi?',
+    'The Pi is shutting down. Wait for the green light to stop flashing before unplugging.'));
+</script></body></html>

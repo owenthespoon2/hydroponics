@@ -5,8 +5,11 @@ Run on the Pi:  python3 live_view.py [--port 8000]
 NOTE: binds 0.0.0.0 so the PC can reach it. Use on the home LAN only;
 there is no authentication. Do not expose this port to the internet.
 
-Routes: GET /  (page), GET /stream (MJPEG), GET /temp (probe JSON).
-One shared rpicam-vid process feeds every viewer.
+Routes: GET /  (web/index.html), GET /stream (MJPEG), GET /temp (probe JSON),
+GET/POST /api/camera/settings (see camera_settings.py),
+POST /api/device/shutdown and /api/device/reboot (need {"confirm": true}).
+One shared rpicam-vid process feeds every viewer. Settings persist in
+camera-settings.json next to this script; CLI flags override it at start.
 """
 import argparse
 import json
@@ -17,7 +20,11 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "pi-thermostat"))
+import camera_settings  # noqa: E402
+import device_actions  # noqa: E402
+from camera_settings import build_rpicam_cmd  # noqa: E402,F401
 try:
     import ds18b20
 except ImportError:  # probe reader optional
@@ -25,63 +32,35 @@ except ImportError:  # probe reader optional
 
 SOI = b"\xff\xd8"
 EOI = b"\xff\xd9"
-FULL_MODE = "1640:1232:10"  # IMX219 binned mode with the full field of view
-
-
-def build_rpicam_cmd(args):
-    """Build the rpicam-vid command from parsed CLI args."""
-    cmd = ["rpicam-vid", "-t", "0", "-n", "--codec", "mjpeg"]
-    if args.fov == "full":
-        cmd += ["--mode", FULL_MODE]
-    cmd += ["--width", str(args.width), "--height", str(args.height),
-            "--framerate", str(args.framerate)]
-    if args.hflip:
-        cmd.append("--hflip")
-    if args.vflip:
-        cmd.append("--vflip")
-    return cmd + ["-o", "-"]
+SETTINGS_PATH = os.path.join(HERE, "camera-settings.json")
+INDEX_PATH = os.path.join(HERE, "web", "index.html")
+settings = camera_settings.defaults()
+settings_lock = threading.Lock()
 
 
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Live camera view (home LAN only).")
     ap.add_argument("--port", type=int, default=8000)
-    ap.add_argument("--fov", choices=["full", "crop"], default="full",
+    ap.add_argument("--fov", choices=["full", "crop"], default=None,
                     help="full = 1640x1232 binned sensor mode; crop = no --mode")
     ap.add_argument("--width", type=int, default=None)
     ap.add_argument("--height", type=int, default=None)
-    ap.add_argument("--framerate", type=int, default=15)
-    ap.add_argument("--hflip", action="store_true")
-    ap.add_argument("--vflip", action="store_true")
-    args = ap.parse_args(argv)
-    default_w, default_h = (1024, 768) if args.fov == "full" else (1280, 720)
-    if args.width is None:
-        args.width = default_w
-    if args.height is None:
-        args.height = default_h
-    return args
+    ap.add_argument("--framerate", type=int, default=None)
+    ap.add_argument("--hflip", action="store_true", default=None)
+    ap.add_argument("--vflip", action="store_true", default=None)
+    return ap.parse_args(argv)
 
-PAGE = """<!doctype html>
-<html><head><meta charset="utf-8"><title>hydro-pi camera</title>
-<style>
-body{margin:0;background:#111;color:#eee;font-family:sans-serif;text-align:center}
-img{max-width:100vw;max-height:90vh;object-fit:contain}
-#temp{padding:6px;font-size:1.2em}
-</style></head><body>
-<div id="temp">water: ...</div>
-<img src="/stream" alt="live view">
-<script>
-async function upd(){
-  try{
-    const r = await fetch('/temp'); const j = await r.json();
-    const parts = Object.entries(j.probes).map(([k,v]) =>
-      k + ': ' + (v === null ? 'no reading' : v.toFixed(2) + ' \\u00b0C'));
-    document.getElementById('temp').textContent =
-      parts.length ? parts.join('   ') : 'no probes found';
-  }catch(e){document.getElementById('temp').textContent='temp unavailable';}
-}
-upd(); setInterval(upd, 5000);
-</script></body></html>
-"""
+
+def apply_cli(values, args):
+    """Return values with any CLI flags that were given laid over them."""
+    values = dict(values)
+    for key in ("fov", "framerate", "hflip", "vflip"):
+        if getattr(args, key) is not None:
+            values[key] = getattr(args, key)
+    if args.width is not None or args.height is not None:
+        w, h = values["resolution"].split("x")
+        values["resolution"] = f"{args.width or w}x{args.height or h}"
+    return values
 
 
 def split_jpegs(buffer):
@@ -142,8 +121,17 @@ class Camera:
                         self.cond.notify_all()
         finally:
             with self.cond:
-                self.running = False  # restart on next viewer
+                if self.proc is proc:  # ignore a replaced process
+                    self.running = False  # restart on next viewer
                 self.cond.notify_all()
+
+    def restart(self, cmd):
+        """Use a new command; viewers' loops start the new process."""
+        self.cmd = cmd
+        self.stop()
+        with self.cond:
+            self.running = False
+            self.cond.notify_all()
 
     def next_frame(self, last_seq, timeout=5.0):
         """Block for a frame newer than last_seq. Returns (frame, seq) or (None, last_seq)."""
@@ -167,6 +155,13 @@ class Camera:
 camera = Camera()
 
 
+def _run_device_action(name):
+    try:
+        device_actions.run_action(name)
+    except (ValueError, OSError):
+        pass
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
@@ -181,14 +176,74 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/":
-            self._send(200, "text/html; charset=utf-8", PAGE.encode())
+            try:
+                with open(INDEX_PATH, "rb") as f:
+                    body = f.read()
+            except OSError:
+                self._send(500, "text/plain", b"web/index.html missing")
+                return
+            self._send(200, "text/html; charset=utf-8", body)
+        elif path == "/api/camera/settings":
+            with settings_lock:
+                body = {"schema": camera_settings.SCHEMA, "values": dict(settings)}
+            self._json(200, body)
         elif path == "/temp":
             body = json.dumps({"probes": read_probes()}).encode()
             self._send(200, "application/json", body)
         elif path == "/stream":
             self._stream()
+        elif path.startswith("/api/device/") and \
+                path[len("/api/device/"):] in device_actions.ACTIONS:
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         else:
             self._send(404, "text/plain", b"not found")
+
+    def _json(self, code, obj):
+        self._send(code, "application/json", json.dumps(obj).encode())
+
+    def _device_action(self, name):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"null")
+        except ValueError:
+            body = None
+        if not isinstance(body, dict) or body.get("confirm") is not True:
+            self._json(400, {"error": 'body must be {"confirm": true}'})
+            return
+        camera.stop()
+        self._json(202, {"status": "shutting_down" if name == "shutdown"
+                         else "rebooting"})
+        threading.Timer(1.0, _run_device_action, args=(name,)).start()
+
+    def do_POST(self):
+        path = self.path.split("?")[0]
+        if path.startswith("/api/device/"):
+            name = path[len("/api/device/"):]
+            if name in device_actions.ACTIONS:
+                self._device_action(name)
+                return
+        if path != "/api/camera/settings":
+            self._send(404, "text/plain", b"not found")
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            partial = json.loads(self.rfile.read(length) or b"null")
+            with settings_lock:
+                new = camera_settings.validate(partial, settings)
+                settings.update(new)
+                values = dict(settings)
+            camera_settings.save(SETTINGS_PATH, values)
+        except (ValueError, TypeError) as e:  # JSON errors are ValueErrors
+            self._json(400, {"error": str(e)})
+            return
+        except OSError as e:
+            self._json(500, {"error": f"could not save settings: {e}"})
+            return
+        camera.restart(build_rpicam_cmd(values))
+        self._json(200, {"values": values})
 
     def _stream(self):
         try:
@@ -217,7 +272,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     args = parse_args()
-    camera.cmd = build_rpicam_cmd(args)
+    settings.update(apply_cli(camera_settings.load(SETTINGS_PATH), args))
+    camera.cmd = build_rpicam_cmd(settings)
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     server.daemon_threads = True
     print(f"Serving on port {args.port} (Ctrl+C to stop)")

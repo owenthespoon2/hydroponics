@@ -11,10 +11,12 @@ This directory houses software modules for **Phase 2 (Raspberry Pi)** and **Phas
 
 ## Live camera view (`timelapse-cam/`)
 * On the Pi: `python3 live_view.py` (`--port N`, default 8000). Needs `rpicam-vid`; no installs.
-* Default is the full field of view (`--mode 1640:1232:10`, 1024x768). Options: `--fov full|crop` (crop = old 1280x720, no `--mode`), `--width`, `--height`, `--framerate`, `--hflip`, `--vflip`.
-* On the PC open `http://hydro-pi.local:8000` (stream plus probe reading, refreshed every 5 s).
+* Default is the full field of view (`--mode 1640:1232:10`, 1024x768). Options: `--fov full|crop` (crop = no `--mode`), `--width`, `--height`, `--framerate`, `--hflip`, `--vflip`; they override the saved settings at start.
+* On the PC open `http://hydro-pi.local:8000` (stream, probe reading every 5 s, and a settings form built from `camera_settings.SCHEMA`; changes apply at once and are saved to `camera-settings.json`, git-ignored).
+* API: `GET/POST /api/camera/settings`. The page is `web/index.html` (`API_BASE` at the top of its script) so it can be moved to another site.
+* The page has Reboot and Shut down buttons (`POST /api/device/reboot|shutdown`, run via `device_actions.py`; needs a passwordless sudo rule for exactly those two `shutdown` commands, set up by the owner). Full API and porting guide: [docs/live-view-api.md](../docs/live-view-api.md).
 * Home LAN only: binds 0.0.0.0 with no login. Ctrl+C stops it and the camera.
-* Tests (any machine): `python -m pytest firmware/timelapse-cam/tests/test_live_view.py -q`
+* Tests (any machine): `python -m pytest firmware/timelapse-cam/tests -q`
 
 ## Planned Modules
 

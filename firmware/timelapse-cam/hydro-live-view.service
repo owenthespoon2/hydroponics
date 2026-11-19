@@ -1,0 +1,19 @@
+# systemd unit: starts the live camera view at boot and restarts it if it crashes.
+# Install on the Pi:
+#   sudo cp hydro-live-view.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now hydro-live-view
+# Logs: journalctl -u hydro-live-view -f
+[Unit]
+Description=hydro-pi live camera view
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=spoon
+WorkingDirectory=/home/spoon/hydroponics/timelapse-cam
+ExecStart=/usr/bin/python3 /home/spoon/hydroponics/timelapse-cam/live_view.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

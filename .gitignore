@@ -11,6 +11,9 @@ __pycache__/
 .venv/
 venv/
 
+# Camera settings saved by live_view.py on the Pi
+firmware/timelapse-cam/camera-settings.json
+
 # Local scratch
 *.log
 *.db
