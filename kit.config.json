@@ -1,0 +1,45 @@
+{
+  "_comment": "AI supervisor kit config (kit lives at C:\\Projects\\ai-supervisor-kit). Paths are relative to the project root.",
+
+  "board": "BOARD.md",
+  "taskPrompt": "",
+  "dataDir": ".kit-data",
+  "_dataDir": "Runner logs. Not data/, because data/ is owned by the website sync (docs/entry-format.md).",
+
+  "protectedPaths": ["log", "runs", "data", "docs/device-api.md", "docs/KIT-RULES.md", "kit.config.json"],
+  "_protectedPaths": "log/, runs/, data/ are written by the website sync only. device-api.md is the contract: owner changes it first.",
+
+  "claude": {
+    "defaultModel": "sonnet",
+    "defaultEffort": "low",
+    "maxTurns": 50,
+    "tools": "Bash,Read,Edit,Write,Glob,Grep,Agent",
+    "settingSources": "project,local",
+    "skipPermissions": true,
+    "extraArgs": ["--exclude-dynamic-system-prompt-sections", "--strict-mcp-config"],
+    "env": {
+      "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+      "BASH_MAX_OUTPUT_LENGTH": "8000"
+    }
+  },
+
+  "hooks": {
+    "dirtyPaths": ["firmware"],
+    "restartCommand": "",
+    "_restartCommand": "None: code runs on the Pi, which the owner deploys by hand over SSH.",
+    "checkCommand": "",
+    "checkDelaySeconds": 60,
+    "queueStatusCommand": "",
+    "queueBusyPattern": "\"queued\"|\"processing\""
+  },
+
+  "watch": {
+    "tokenLimit": 3000000,
+    "stallMinutes": 30
+  },
+
+  "gemini": {
+    "blocked": ["^data[\\\\/]", "^log[\\\\/]", "^runs[\\\\/]", "^secrets[\\\\/]", "^\\.env", "config\\.json$", "config\\.yaml$", "\\.(db|sqlite3?|pdf|png|jpe?g|heic|webp)$"],
+    "usageLog": ".kit-data/gemini-usage.jsonl"
+  }
+}
