@@ -8,11 +8,17 @@ img{max-width:100vw;max-height:80vh;object-fit:contain}
 #settings{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center;padding:8px}
 #settings label{display:flex;flex-direction:column;font-size:.85em}
 #msg{min-height:1.2em;color:#f88}
+#device{padding:8px}#devmsg{min-height:1.2em;padding:4px}
 </style></head><body>
 <div id="temp">water: ...</div>
 <img id="stream" alt="live view">
 <div id="msg"></div>
 <form id="settings" onsubmit="return false"></form>
+<div id="device">
+<button id="btn-reboot" type="button">Reboot</button>
+<button id="btn-shutdown" type="button">Shut down</button>
+</div>
+<div id="devmsg"></div>
 <script>
 const API_BASE = "";
 
@@ -87,4 +93,22 @@ async function loadSettings(){
   }catch(e){ msg.textContent = 'settings unavailable'; }
 }
 loadSettings();
+
+async function deviceAction(name, question, done){
+  if(!confirm(question)) return;
+  try{
+    const r = await fetch(API_BASE + '/api/device/' + name, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirm: true})
+    });
+    const j = await r.json();
+    document.getElementById('devmsg').textContent = r.ok ? done : (j.error || 'error');
+  }catch(e){ msg.textContent = 'could not reach the Pi'; }
+}
+document.getElementById('btn-reboot').addEventListener('click', () =>
+  deviceAction('reboot', 'Reboot the Pi?', 'Rebooting, refresh in about a minute.'));
+document.getElementById('btn-shutdown').addEventListener('click', () =>
+  deviceAction('shutdown', 'Shut down the Pi?',
+    'The Pi is shutting down. Wait for the green light to stop flashing before unplugging.'));
 </script></body></html>

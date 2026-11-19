@@ -6,7 +6,8 @@ NOTE: binds 0.0.0.0 so the PC can reach it. Use on the home LAN only;
 there is no authentication. Do not expose this port to the internet.
 
 Routes: GET /  (web/index.html), GET /stream (MJPEG), GET /temp (probe JSON),
-GET/POST /api/camera/settings (see camera_settings.py).
+GET/POST /api/camera/settings (see camera_settings.py),
+POST /api/device/shutdown and /api/device/reboot (need {"confirm": true}).
 One shared rpicam-vid process feeds every viewer. Settings persist in
 camera-settings.json next to this script; CLI flags override it at start.
 """
@@ -22,6 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "pi-thermostat"))
 import camera_settings  # noqa: E402
+import device_actions  # noqa: E402
 from camera_settings import build_rpicam_cmd  # noqa: E402,F401
 try:
     import ds18b20
@@ -153,6 +155,13 @@ class Camera:
 camera = Camera()
 
 
+def _run_device_action(name):
+    try:
+        device_actions.run_action(name)
+    except (ValueError, OSError):
+        pass
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
@@ -183,14 +192,39 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "application/json", body)
         elif path == "/stream":
             self._stream()
+        elif path.startswith("/api/device/") and \
+                path[len("/api/device/"):] in device_actions.ACTIONS:
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         else:
             self._send(404, "text/plain", b"not found")
 
     def _json(self, code, obj):
         self._send(code, "application/json", json.dumps(obj).encode())
 
+    def _device_action(self, name):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"null")
+        except ValueError:
+            body = None
+        if not isinstance(body, dict) or body.get("confirm") is not True:
+            self._json(400, {"error": 'body must be {"confirm": true}'})
+            return
+        camera.stop()
+        self._json(202, {"status": "shutting_down" if name == "shutdown"
+                         else "rebooting"})
+        threading.Timer(1.0, _run_device_action, args=(name,)).start()
+
     def do_POST(self):
         path = self.path.split("?")[0]
+        if path.startswith("/api/device/"):
+            name = path[len("/api/device/"):]
+            if name in device_actions.ACTIONS:
+                self._device_action(name)
+                return
         if path != "/api/camera/settings":
             self._send(404, "text/plain", b"not found")
             return
