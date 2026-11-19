@@ -25,10 +25,40 @@ except ImportError:  # probe reader optional
 
 SOI = b"\xff\xd8"
 EOI = b"\xff\xd9"
-CAMERA_CMD = [
-    "rpicam-vid", "-t", "0", "-n", "--codec", "mjpeg",
-    "--width", "1280", "--height", "720", "--framerate", "15", "-o", "-",
-]
+FULL_MODE = "1640:1232:10"  # IMX219 binned mode with the full field of view
+
+
+def build_rpicam_cmd(args):
+    """Build the rpicam-vid command from parsed CLI args."""
+    cmd = ["rpicam-vid", "-t", "0", "-n", "--codec", "mjpeg"]
+    if args.fov == "full":
+        cmd += ["--mode", FULL_MODE]
+    cmd += ["--width", str(args.width), "--height", str(args.height),
+            "--framerate", str(args.framerate)]
+    if args.hflip:
+        cmd.append("--hflip")
+    if args.vflip:
+        cmd.append("--vflip")
+    return cmd + ["-o", "-"]
+
+
+def parse_args(argv=None):
+    ap = argparse.ArgumentParser(description="Live camera view (home LAN only).")
+    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--fov", choices=["full", "crop"], default="full",
+                    help="full = 1640x1232 binned sensor mode; crop = no --mode")
+    ap.add_argument("--width", type=int, default=None)
+    ap.add_argument("--height", type=int, default=None)
+    ap.add_argument("--framerate", type=int, default=15)
+    ap.add_argument("--hflip", action="store_true")
+    ap.add_argument("--vflip", action="store_true")
+    args = ap.parse_args(argv)
+    default_w, default_h = (1024, 768) if args.fov == "full" else (1280, 720)
+    if args.width is None:
+        args.width = default_w
+    if args.height is None:
+        args.height = default_h
+    return args
 
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>hydro-pi camera</title>
@@ -80,7 +110,7 @@ def read_probes(base=None):
 class Camera:
     """Shared rpicam-vid process; latest frame is broadcast to all viewers."""
 
-    def __init__(self, cmd=CAMERA_CMD):
+    def __init__(self, cmd=None):
         self.cmd = cmd
         self.cond = threading.Condition()
         self.frame = None
@@ -186,9 +216,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Live camera view (home LAN only).")
-    ap.add_argument("--port", type=int, default=8000)
-    args = ap.parse_args()
+    args = parse_args()
+    camera.cmd = build_rpicam_cmd(args)
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     server.daemon_threads = True
     print(f"Serving on port {args.port} (Ctrl+C to stop)")
