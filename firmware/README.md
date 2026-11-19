@@ -9,6 +9,12 @@ This directory houses software modules for **Phase 2 (Raspberry Pi)** and **Phas
 * A bad CRC, the 85 °C power-on value or a reading outside -10..60 °C shows `no reading`.
 * Tests (any machine): `python -m pytest firmware/pi-thermostat/tests/test_ds18b20.py -q`
 
+## Live camera view (`timelapse-cam/`)
+* On the Pi: `python3 live_view.py` (`--port N`, default 8000). Needs `rpicam-vid`; no installs.
+* On the PC open `http://hydro-pi.local:8000` (stream plus probe reading, refreshed every 5 s).
+* Home LAN only: binds 0.0.0.0 with no login. Ctrl+C stops it and the camera.
+* Tests (any machine): `python -m pytest firmware/timelapse-cam/tests/test_live_view.py -q`
+
 ## Planned Modules
 
 ### 1. `pi-thermostat/`
