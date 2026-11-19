@@ -27,6 +27,7 @@ hydroponics/
 │   ├── heating-project.md    # the heater/thermostat project and its deadline
 │   ├── crop-profiles.md      # what each crop needs
 │   ├── bill-of-materials.md  # parts, costs, status
+│   ├── parts-on-hand.md      # what I already own (controllers, sensors, relays)
 │   └── wiring-diagrams.md    # Pi, probe, relay, heater wiring and safety rules
 ├── hardware/             # CAD and printed parts (future)
 ├── firmware/             # Pi and ESP32 code (future)
