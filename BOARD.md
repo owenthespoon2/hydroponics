@@ -16,7 +16,7 @@
 ## WAITING ON HARDWARE (supervisor moves these up)
 - DONE 2026-11-19: probe wired (GPIO 4, adapter board), `28-000000d3a8fa` reads ~15 °C on the Pi. SSH key login works for the supervisor.
 - DONE 2026-11-20: camera (imx219, V2.1) detected in the CAMERA slot; `rpicam-still` works. picamera2 not installed.
-- Relay bench test (owner wires per docs/wiring-diagrams.md: GPIO 5, jumper off; supervisor toggles with `pinctrl`, no load): confirm active-low and that it stays OFF through a reboot. Then a small USB load test. Then the thermostat task.
+- DONE 2026-11-20: relay bench test. GPIO 5, active-low confirmed (3 clicks), boot state HIGH = off. T6 page button verified on the Pi; relay goes off when the service stops. Not yet done: `gpio=5=op,dh` in config.txt (needs owner OK), PSU under-voltage (throttled=0x50005) to fix, USB load test.
 
 ## Known failures (not yours)
 - none
