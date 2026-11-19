@@ -35,6 +35,31 @@ def test_split_junk_before_first_marker():
     assert frames == [] and rest == b""
 
 
+def test_cmd_default_full_fov():
+    cmd = live_view.build_rpicam_cmd(live_view.parse_args([]))
+    assert cmd[cmd.index("--mode") + 1] == "1640:1232:10"
+    assert cmd[cmd.index("--width") + 1] == "1024"
+    assert cmd[cmd.index("--height") + 1] == "768"
+    assert "--hflip" not in cmd and "--vflip" not in cmd
+
+
+def test_cmd_crop_has_no_mode():
+    cmd = live_view.build_rpicam_cmd(live_view.parse_args(["--fov", "crop"]))
+    assert "--mode" not in cmd
+    assert cmd[cmd.index("--width") + 1] == "1280"
+    assert cmd[cmd.index("--height") + 1] == "720"
+
+
+def test_cmd_flips_and_overrides():
+    args = live_view.parse_args(
+        ["--hflip", "--vflip", "--width", "640", "--height", "480",
+         "--framerate", "10"])
+    cmd = live_view.build_rpicam_cmd(args)
+    assert "--hflip" in cmd and "--vflip" in cmd
+    assert cmd[cmd.index("--framerate") + 1] == "10"
+    assert cmd[cmd.index("--width") + 1] == "640"
+
+
 def test_temp_endpoint(tmp_path, monkeypatch):
     probe = tmp_path / "28-000000000001"
     probe.mkdir()
