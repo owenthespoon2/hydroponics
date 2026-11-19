@@ -63,3 +63,13 @@ HC-SR04 ultrasonic sensor: a possible water-level sensor for a bigger reservoir.
 ![DHT11 temperature and humidity module](images/dht11-module.jpg)
 
 DHT11 module: air temperature and humidity around the plants.
+
+---
+
+## 2026-11-20: Camera controls, reboot and shutdown from the page
+
+The live view page now has controls under the video (field of view, resolution, frame rate, brightness, contrast, saturation, sharpness, exposure, white balance, flip) and **Reboot** / **Shut down** buttons, so the Pi no longer needs SSH for everyday use. Settings are remembered on the Pi.
+
+The page is a separate file (`firmware/timelapse-cam/web/index.html`) that talks to the Pi through a small JSON API, documented in [live-view-api.md](live-view-api.md), so it can move to the personal website later. A systemd service (`hydro-live-view`) starts the page at boot: a reboot from the page brings it back by itself in about 45 seconds.
+
+Written by Sonnet workers (T4, T5) in about 3 minutes, 28 tests.
