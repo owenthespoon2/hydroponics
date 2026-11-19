@@ -19,7 +19,7 @@ This directory houses software modules for **Phase 2 (Raspberry Pi)** and **Phas
 
 ### 1. `pi-thermostat/`
 * Python daemon reading `/sys/bus/w1/devices/28-*/w1_slave` (DS18B20 1-Wire interface).
-* Controls `GPIO 17` relay with hysteresis (`ON <= 20.0°C`, `OFF >= 24.0°C`) and failsafe max-runtime watchdog.
+* Controls the relay on `GPIO 5` (pin 29, active-low) with hysteresis (`ON <= 20.0°C`, `OFF >= 24.0°C`) and failsafe max-runtime watchdog.
 * Exposes a lightweight Flask / Node-RED web endpoint over **Tailscale** for remote monitoring and manual override.
 
 ### 2. `timelapse-cam/`
