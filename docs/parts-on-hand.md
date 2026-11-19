@@ -31,6 +31,9 @@ What I already own that could go into the build. Identified from photos on 2026-
 | Relays rated 10 A at 250 VAC / 125 VAC | Not photographed. Not needed. The heater is 5 V DC, so mains is not part of this build. | |
 | USB Type-A female breakout boards (10-pack) | For wiring the heater's USB plug to the relay and power supply. | |
 | Pi GPIO screw-terminal breakout board | Wires a Pi's 40-pin header to screw terminals without soldering. | |
+| microSD card, Amazon Basics 64 GB (microSDXC, V30, U3) | For the Pi's operating system. | |
+| microSD card, SanDisk 2 GB | Too small for the Pi OS. | |
+| Kingston USB microSD reader | For writing the Pi's card from my computer. | |
 | 40 mm fan | For Pi cooling if needed. | |
 | Jumper wires | Plenty. | |
 

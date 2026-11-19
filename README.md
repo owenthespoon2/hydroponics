@@ -28,6 +28,8 @@ hydroponics/
 │   ├── crop-profiles.md      # what each crop needs
 │   ├── bill-of-materials.md  # parts, costs, status
 │   ├── parts-on-hand.md      # what I already own (controllers, sensors, relays)
+│   ├── pi-setup.md           # setting up the Raspberry Pi, step by step
+│   ├── device-api.md         # how the Pi talks to my website (data, photos, commands)
 │   └── wiring-diagrams.md    # Pi, probe, relay, heater wiring and safety rules
 ├── hardware/             # CAD and printed parts (future)
 ├── firmware/             # Pi and ESP32 code (future)

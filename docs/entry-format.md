@@ -11,9 +11,12 @@ This file is the contract between the website's sync code and this repo. If the 
 | `log/**` | website sync | One folder per post. Never edit by hand. |
 | `runs/**` | website sync | One file per run (a crop grown start to finish). |
 | `README.md`, between `<!-- status:start -->` and `<!-- status:end -->` | website sync | Current run, day count, latest photo. Everything else in the README is hand-written. |
-| `docs/`, `hardware/`, `firmware/`, `data/` | git / hand / AI-assisted | The sync must never touch these. |
+| `data/**` | website sync | Daily batch of sensor readings. See [device-api.md](device-api.md). |
+| `docs/`, `hardware/`, `firmware/` | git / hand / AI-assisted | The sync must never write to these. The website **reads** `docs/` and displays it. |
 
-Keeping these paths separate means the sync and hand edits can never conflict.
+Each path has exactly one owner, so the sync and hand edits can never conflict. Information flows one way per path:
+- `log/`, `runs/`, `data/`: website → GitHub (the website is the source of truth).
+- `docs/`, `hardware/`, `firmware/`: GitHub → website (git is the source of truth, the website only displays it).
 
 ## Layout of a post
 
@@ -105,5 +108,5 @@ All dates are Asia/Tokyo. Store the offset (`+09:00`) so entries stay correct if
 
 ## Not built yet (reserved)
 
-- `data/`: sensor readings from the Raspberry Pi (water temperature, heater on/off), likely one CSV per month. Not part of the website sync for now.
-- `firmware/`: code for the Pi thermostat, camera, and later ESP32 nodes.
+- `data/`: sensor readings, one CSV per month at `data/YYYY/YYYY-MM.csv`, written once a day by the sync. Format in [device-api.md](device-api.md).
+- `firmware/`: code for the Pi agent, the thermostat, and later ESP32 nodes.
