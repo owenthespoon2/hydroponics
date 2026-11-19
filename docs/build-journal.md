@@ -73,3 +73,22 @@ The live view page now has controls under the video (field of view, resolution, 
 The page is a separate file (`firmware/timelapse-cam/web/index.html`) that talks to the Pi through a small JSON API, documented in [live-view-api.md](live-view-api.md), so it can move to the personal website later. A systemd service (`hydro-live-view`) starts the page at boot: a reboot from the page brings it back by itself in about 45 seconds.
 
 Written by Sonnet workers (T4, T5) in about 3 minutes, 28 tests.
+
+---
+
+## 2026-11-20: Relay wired and working
+
+The 2-channel relay module, wired to the Pi through a screw-terminal strip. The Vcc/RVcc jumper is off, so the relay's logic side runs at 3.3 V and its coils at 5 V. In1 goes to GPIO 5 (pin 29); In2 is unused.
+
+![Relay, Pi and terminal strip](images/2026-11-20-relay-wired.jpg)
+
+![Relay headers: jumper removed, RVcc and Gnd on the left, Gnd, In1 and Vcc on the right](images/2026-11-20-relay-header.jpg)
+
+![Wires on the Pi header](images/2026-11-20-relay-pi-pins.jpg)
+
+Tests:
+- At boot GPIO 5 is pulled HIGH, so the relay stays **off** while the Pi starts.
+- Switched from the command line three times: three clicks. It is **active-low** (pin LOW = relay on).
+- A **Relay 1** button on the live view page (T6, Sonnet): red when on, a 10-minute auto-off countdown, and the relay turns off when the page service stops, even mid-test (checked by stopping the service with the relay on).
+
+To do: fix the Pi's power supply (it reports under-voltage), add `gpio=5=op,dh` to `config.txt` as a second boot-safety layer, a USB load test through NO/COM, then the heater.

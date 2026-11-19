@@ -14,6 +14,7 @@ camera-settings.json next to this script; CLI flags override it at start.
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -24,6 +25,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "pi-thermostat"))
 import camera_settings  # noqa: E402
 import device_actions  # noqa: E402
+import relay as relay_mod  # noqa: E402
 from camera_settings import build_rpicam_cmd  # noqa: E402,F401
 try:
     import ds18b20
@@ -48,6 +50,12 @@ def parse_args(argv=None):
     ap.add_argument("--framerate", type=int, default=None)
     ap.add_argument("--hflip", action="store_true", default=None)
     ap.add_argument("--vflip", action="store_true", default=None)
+    ap.add_argument("--relay-pin", type=int, default=5,
+                    help="GPIO for relay In1 (default 5)")
+    ap.add_argument("--relay-active-high", action="store_true",
+                    help="relay is ON when the pin is HIGH (default: active-low)")
+    ap.add_argument("--relay-max-on", type=int, default=600,
+                    help="seconds before the relay switches itself off")
     return ap.parse_args(argv)
 
 
@@ -153,9 +161,20 @@ class Camera:
 
 
 camera = Camera()
+relay_ctl = None  # created in main()
+
+
+def _relay_off():
+    """Best effort: switch relay 1 off. Never raises."""
+    if relay_ctl is not None:
+        try:
+            relay_ctl.off()
+        except RuntimeError:
+            pass
 
 
 def _run_device_action(name):
+    _relay_off()
     try:
         device_actions.run_action(name)
     except (ValueError, OSError):
@@ -187,6 +206,11 @@ class Handler(BaseHTTPRequestHandler):
             with settings_lock:
                 body = {"schema": camera_settings.SCHEMA, "values": dict(settings)}
             self._json(200, body)
+        elif path == "/api/relay":
+            if relay_ctl is None:
+                self._json(500, {"error": "relay not available"})
+            else:
+                self._json(200, relay_ctl.status())
         elif path == "/temp":
             body = json.dumps({"probes": read_probes()}).encode()
             self._send(200, "application/json", body)
@@ -214,9 +238,32 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": 'body must be {"confirm": true}'})
             return
         camera.stop()
+        _relay_off()
         self._json(202, {"status": "shutting_down" if name == "shutdown"
                          else "rebooting"})
         threading.Timer(1.0, _run_device_action, args=(name,)).start()
+
+    def _relay_post(self):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"null")
+        except ValueError:
+            body = None
+        if not isinstance(body, dict) or not isinstance(body.get("on"), bool):
+            self._json(400, {"error": 'body must be {"on": true|false}'})
+            return
+        if relay_ctl is None:
+            self._json(500, {"error": "relay not available"})
+            return
+        try:
+            if body["on"]:
+                relay_ctl.on()
+            else:
+                relay_ctl.off()
+        except RuntimeError as e:
+            self._json(500, {"error": str(e)})
+            return
+        self._json(200, relay_ctl.status())
 
     def do_POST(self):
         path = self.path.split("?")[0]
@@ -225,6 +272,9 @@ class Handler(BaseHTTPRequestHandler):
             if name in device_actions.ACTIONS:
                 self._device_action(name)
                 return
+        if path == "/api/relay":
+            self._relay_post()
+            return
         if path != "/api/camera/settings":
             self._send(404, "text/plain", b"not found")
             return
@@ -271,17 +321,32 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global relay_ctl
     args = parse_args()
     settings.update(apply_cli(camera_settings.load(SETTINGS_PATH), args))
     camera.cmd = build_rpicam_cmd(settings)
+    try:
+        relay_ctl = relay_mod.Relay(pin=args.relay_pin,
+                                    active_low=not args.relay_active_high,
+                                    max_on_s=args.relay_max_on)
+    except RuntimeError as e:
+        print(f"Relay unavailable: {e}", file=sys.stderr)
+        sys.exit(1)
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     server.daemon_threads = True
+
+    def on_sigterm(signum, frame):
+        # shutdown() blocks until serve_forever exits, so call it off-thread
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, on_sigterm)
     print(f"Serving on port {args.port} (Ctrl+C to stop)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        _relay_off()
         server.server_close()
         camera.stop()
 

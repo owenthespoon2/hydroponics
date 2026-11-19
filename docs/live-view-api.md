@@ -50,6 +50,23 @@ Reply `202` (sent before the action runs, about 1 s later; the camera is stopped
 or `{"status": "rebooting"}`. A missing or false `confirm` gives `400 {"error": "..."}`.
 `GET` on these paths gives `405`. Only the two fixed commands in `device_actions.py` can run.
 
+### `GET /api/relay`
+Relay 1 status (default GPIO 5, active-low, driven with `pinctrl`):
+```json
+{"on": true, "auto_off_in_s": 540, "pin": 5, "active_low": true, "max_on_s": 600}
+```
+`auto_off_in_s` is `null` when the relay is off.
+
+### `POST /api/relay`
+Request:
+```json
+{"on": true}
+```
+Success `200` with the status object above. A body that is not `{"on": true|false}` gives `400 {"error": "..."}`. If `pinctrl` fails: `500 {"error": "..."}` and the relay is reported as off.
+
+Safety: the relay is switched off at start, on exit (normal, Ctrl+C, SIGTERM), before a reboot or shutdown, and by itself after `--relay-max-on` seconds (default 600). Options: `--relay-pin`, `--relay-active-high`, `--relay-max-on`.
+On the website this maps to `heating_enable` / `heating_disable` in `docs/device-api.md` (that file is not edited here).
+
 ## Porting to another website
 
 * The page is `web/index.html` plus the `API_BASE` constant at the top of its script. Every fetch and the stream URL use it, so point it at another origin (or a proxy) to move the page.

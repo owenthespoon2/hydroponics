@@ -9,11 +9,22 @@ img{max-width:100vw;max-height:80vh;object-fit:contain}
 #settings label{display:flex;flex-direction:column;font-size:.85em}
 #msg{min-height:1.2em;color:#f88}
 #device{padding:8px}#devmsg{min-height:1.2em;padding:4px}
+#relay{padding:8px}
+#relay-btn{font-size:1.6em;padding:14px 40px;border:0;border-radius:8px;color:#fff;background:#666}
+#relay-btn.on{background:#d22}
+#relay-note{font-size:.85em;color:#aaa}
 </style></head><body>
 <div id="temp">water: ...</div>
 <img id="stream" alt="live view">
 <div id="msg"></div>
 <form id="settings" onsubmit="return false"></form>
+<div id="relay">
+<h3>Relay 1</h3>
+<button id="relay-btn" type="button">...</button>
+<div id="relay-count"></div>
+<div id="relay-note">Test only: switches off by itself after 10 minutes</div>
+<div id="relay-msg" style="color:#f88"></div>
+</div>
 <div id="device">
 <button id="btn-reboot" type="button">Reboot</button>
 <button id="btn-shutdown" type="button">Shut down</button>
@@ -93,6 +104,41 @@ async function loadSettings(){
   }catch(e){ msg.textContent = 'settings unavailable'; }
 }
 loadSettings();
+
+const relayBtn = document.getElementById('relay-btn');
+const relayMsg = document.getElementById('relay-msg');
+let relayOn = false;
+
+function showRelay(s){
+  relayOn = s.on;
+  relayBtn.textContent = s.on ? 'ON' : 'OFF';
+  relayBtn.classList.toggle('on', s.on);
+  document.getElementById('relay-count').textContent =
+    (s.on && s.auto_off_in_s !== null) ? 'auto-off in ' + s.auto_off_in_s + ' s' : '';
+}
+
+async function pollRelay(){
+  try{
+    const r = await fetch(API_BASE + '/api/relay');
+    const j = await r.json();
+    if(r.ok){ showRelay(j); relayMsg.textContent = ''; }
+    else relayMsg.textContent = j.error || 'relay error';
+  }catch(e){ relayMsg.textContent = 'could not reach the Pi'; }
+}
+
+relayBtn.addEventListener('click', async () => {
+  try{
+    const r = await fetch(API_BASE + '/api/relay', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({on: !relayOn})
+    });
+    const j = await r.json();
+    if(r.ok){ showRelay(j); relayMsg.textContent = ''; }
+    else relayMsg.textContent = j.error || 'relay error';
+  }catch(e){ relayMsg.textContent = 'could not reach the Pi'; }
+});
+pollRelay(); setInterval(pollRelay, 2000);
 
 async function deviceAction(name, question, done){
   if(!confirm(question)) return;
