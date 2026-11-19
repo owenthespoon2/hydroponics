@@ -6,6 +6,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import camera_settings  # noqa: E402
 import live_view  # noqa: E402
 
 A = b"\xff\xd8aaa\xff\xd9"
@@ -35,29 +36,75 @@ def test_split_junk_before_first_marker():
     assert frames == [] and rest == b""
 
 
-def test_cmd_default_full_fov():
-    cmd = live_view.build_rpicam_cmd(live_view.parse_args([]))
-    assert cmd[cmd.index("--mode") + 1] == "1640:1232:10"
-    assert cmd[cmd.index("--width") + 1] == "1024"
-    assert cmd[cmd.index("--height") + 1] == "768"
-    assert "--hflip" not in cmd and "--vflip" not in cmd
+def test_cli_defaults_leave_saved_values():
+    base = camera_settings.defaults()
+    assert live_view.apply_cli(base, live_view.parse_args([])) == base
 
 
-def test_cmd_crop_has_no_mode():
-    cmd = live_view.build_rpicam_cmd(live_view.parse_args(["--fov", "crop"]))
-    assert "--mode" not in cmd
-    assert cmd[cmd.index("--width") + 1] == "1280"
-    assert cmd[cmd.index("--height") + 1] == "720"
-
-
-def test_cmd_flips_and_overrides():
+def test_cli_overrides_saved_values():
     args = live_view.parse_args(
-        ["--hflip", "--vflip", "--width", "640", "--height", "480",
-         "--framerate", "10"])
-    cmd = live_view.build_rpicam_cmd(args)
-    assert "--hflip" in cmd and "--vflip" in cmd
-    assert cmd[cmd.index("--framerate") + 1] == "10"
-    assert cmd[cmd.index("--width") + 1] == "640"
+        ["--fov", "crop", "--hflip", "--vflip", "--width", "640",
+         "--height", "480", "--framerate", "10"])
+    values = live_view.apply_cli(camera_settings.defaults(), args)
+    assert values["fov"] == "crop"
+    assert values["resolution"] == "640x480"
+    assert values["framerate"] == 10
+    assert values["hflip"] is True and values["vflip"] is True
+
+
+def _serve(monkeypatch, tmp_path):
+    monkeypatch.setattr(live_view, "SETTINGS_PATH", str(tmp_path / "s.json"))
+    monkeypatch.setattr(live_view, "settings", camera_settings.defaults())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), live_view.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+
+def _post(url, body):
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(), method="POST",
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def test_settings_api_get_and_post(tmp_path, monkeypatch):
+    server, base = _serve(monkeypatch, tmp_path)
+    cmds = []
+    monkeypatch.setattr(live_view.camera, "restart", cmds.append)
+    try:
+        with urllib.request.urlopen(base + "/api/camera/settings", timeout=5) as r:
+            data = json.loads(r.read())
+        assert data["schema"] == camera_settings.SCHEMA
+        assert data["values"] == camera_settings.defaults()
+
+        status, body = _post(base + "/api/camera/settings", {"framerate": 10})
+        assert status == 200 and body["values"]["framerate"] == 10
+        assert len(cmds) == 1 and "--framerate" in cmds[0]
+        assert camera_settings.load(str(tmp_path / "s.json"))["framerate"] == 10
+
+        status, body = _post(base + "/api/camera/settings", {"framerate": 99})
+        assert status == 400 and "framerate" in body["error"]
+        status, body = _post(base + "/api/camera/settings", {"nope": 1})
+        assert status == 400 and "nope" in body["error"]
+        assert len(cmds) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_index_served(tmp_path, monkeypatch):
+    server, base = _serve(monkeypatch, tmp_path)
+    try:
+        with urllib.request.urlopen(base + "/", timeout=5) as r:
+            html = r.read().decode()
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert 'const API_BASE = "";' in html
 
 
 def test_temp_endpoint(tmp_path, monkeypatch):
