@@ -1,0 +1,26 @@
+# Secrets and local config (tokens, Wi-Fi credentials, Tailscale keys)
+.env
+.env.*
+*.local.json
+config.yaml
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local scratch
+*.log
+*.db
+*.sqlite3
+tmp/
+scratch/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# NOTE: photos (*.jpg, *.png) are deliberately NOT ignored.
+# The daily log lives in log/ and its photos are part of the record.

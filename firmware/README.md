@@ -1,0 +1,17 @@
+# 💻 Firmware & Automation Scripts
+
+This directory houses software modules for **Phase 2 (Raspberry Pi)** and **Phase 3 (ESP32)** automation.
+
+## Planned Modules
+
+### 1. `pi-thermostat/`
+* Python daemon reading `/sys/bus/w1/devices/28-*/w1_slave` (DS18B20 1-Wire interface).
+* Controls `GPIO 17` relay with hysteresis (`ON <= 20.0°C`, `OFF >= 24.0°C`) and failsafe max-runtime watchdog.
+* Exposes a lightweight Flask / Node-RED web endpoint over **Tailscale** for remote monitoring and manual override.
+
+### 2. `timelapse-cam/`
+* `cron`-scheduled `rpicam-still` capture every 60 minutes during the 12-hour grow-light window.
+* Automatic daily stitching into an MP4 growth time-lapse via `ffmpeg`.
+
+### 3. `esp32-nodes/`
+* Future wireless MQTT / HTTP sensor nodes for multi-reservoir EC/pH monitoring and automated top-up pumps in Phase 3.
