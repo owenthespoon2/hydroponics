@@ -2,6 +2,13 @@
 
 This directory houses software modules for **Phase 2 (Raspberry Pi)** and **Phase 3 (ESP32)** automation.
 
+## Reading the probe (`pi-thermostat/`)
+* `python3 read_temp.py` prints `<probe id>  <°C>` every 2 s (Ctrl+C to stop).
+* `--once` prints one round and exits; `--interval N` changes the delay.
+* Exit code 1 if no `28-*` probe is found (check wiring / 1-Wire overlay).
+* A bad CRC, the 85 °C power-on value or a reading outside -10..60 °C shows `no reading`.
+* Tests (any machine): `python -m pytest firmware/pi-thermostat/tests/test_ds18b20.py -q`
+
 ## Planned Modules
 
 ### 1. `pi-thermostat/`
