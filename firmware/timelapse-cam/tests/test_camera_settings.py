@@ -70,3 +70,30 @@ def test_load_save_roundtrip_and_bad_file(tmp_path):
     assert cs.load(str(p)) == cs.defaults()
     p.write_text(json.dumps({"framerate": 99}))
     assert cs.load(str(p)) == cs.defaults()
+
+
+def test_night_shutter_and_gain():
+    cmd = cs.build_rpicam_cmd(cs.defaults())
+    assert "--shutter" not in cmd and "--gain" not in cmd  # 0 = automatic
+    vals = cs.validate({"shutter_ms": 500, "gain": 8, "framerate": 15}, cs.defaults())
+    cmd = cs.build_rpicam_cmd(vals)
+    assert cmd[cmd.index("--shutter") + 1] == "500000"
+    assert cmd[cmd.index("--gain") + 1] == "8.0"
+    assert cmd[cmd.index("--framerate") + 1] == "2"  # lowered so 0.5 s fits in a frame
+    vals = cs.validate({"shutter_ms": 1000}, cs.defaults())
+    assert cs.effective_framerate(vals) == 1
+    vals = cs.validate({"shutter_ms": 20, "framerate": 10}, cs.defaults())
+    assert cs.effective_framerate(vals) == 10  # short shutter keeps the chosen rate
+
+
+@pytest.mark.parametrize("partial", [{"shutter_ms": 1001}, {"shutter_ms": -1}, {"gain": 17}, {"shutter_ms": 1.5}])
+def test_night_values_rejected(partial):
+    with pytest.raises(ValueError):
+        cs.validate(partial, cs.defaults())
+
+
+def test_old_saved_file_without_night_keys_loads(tmp_path):
+    p = tmp_path / "s.json"
+    p.write_text('{"framerate": 10, "vflip": true}', encoding="utf-8")
+    vals = cs.load(str(p))
+    assert vals["shutter_ms"] == 0 and vals["gain"] == 0.0 and vals["framerate"] == 10

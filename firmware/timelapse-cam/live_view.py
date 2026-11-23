@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
@@ -98,6 +99,50 @@ def read_probes(base=None):
     return {p: ds18b20.read_c(p, base) for p in ds18b20.find_probes(base)}
 
 
+def find_rpicam_pids(proc_dir="/proc"):
+    """PIDs of every rpicam-vid run by this user (an orphan one holds the camera)."""
+    pids = []
+    try:
+        names = os.listdir(proc_dir)
+    except OSError:
+        return pids
+    uid = os.getuid() if hasattr(os, "getuid") else None
+    for name in names:
+        if not name.isdigit():
+            continue
+        path = os.path.join(proc_dir, name)
+        try:
+            with open(os.path.join(path, "comm"), encoding="utf-8") as f:
+                if f.read().strip() != "rpicam-vid":
+                    continue
+            if uid is not None and os.stat(path).st_uid != uid:
+                continue
+        except OSError:
+            continue
+        pids.append(int(name))
+    return pids
+
+
+def stop_stray_rpicam(find=find_rpicam_pids, kill=os.kill, sleep=time.sleep, wait_s=3.0):
+    """Stop every rpicam-vid of this user: SIGTERM, then SIGKILL after wait_s. Never raises."""
+    pids = find()
+    for pid in pids:
+        try:
+            kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    waited = 0.0
+    while pids and waited < wait_s:
+        sleep(0.1)
+        waited += 0.1
+        pids = [p for p in pids if p in find()]
+    for pid in pids:
+        try:
+            kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+        except OSError:
+            pass
+
+
 class Camera:
     """Shared rpicam-vid process; latest frame is broadcast to all viewers."""
 
@@ -110,13 +155,18 @@ class Camera:
         self.running = False
 
     def start(self):
+        # Everything under the lock: before, self.proc was set after the lock was let go, so
+        # the old process's _pump could still see itself as current, mark the camera stopped
+        # and make a viewer start a second rpicam-vid that then held the camera as an orphan.
         with self.cond:
             if self.running:
                 return
+            stop_stray_rpicam()  # one camera user at a time; an orphan would hold it
+            proc = subprocess.Popen(
+                self.cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            self.proc = proc
             self.running = True
-        self.proc = subprocess.Popen(
-            self.cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        threading.Thread(target=self._pump, args=(self.proc,), daemon=True).start()
+        threading.Thread(target=self._pump, args=(proc,), daemon=True).start()
 
     def _pump(self, proc):
         rest = b""
@@ -128,6 +178,8 @@ class Camera:
                 frames, rest = split_jpegs(rest + chunk)
                 if frames:
                     with self.cond:
+                        if self.proc is not proc:  # a replaced process: never show its frames
+                            break
                         self.frame = frames[-1]
                         self.seq += 1
                         self.cond.notify_all()

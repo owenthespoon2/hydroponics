@@ -23,6 +23,10 @@ SCHEMA = [
     _s("saturation", "Saturation", "float", 1.0, min=0.0, max=2.0, step=0.1),
     _s("sharpness", "Sharpness", "float", 1.0, min=0.0, max=2.0, step=0.1),
     _s("ev", "Exposure compensation (EV)", "float", 0.0, min=-4.0, max=4.0, step=0.5),
+    # Night / dark room: a fixed long shutter and gain. 0 = automatic. A video frame
+    # cannot expose longer than 1/framerate, so the frame rate is lowered to fit.
+    _s("shutter_ms", "Shutter (ms, 0 = auto; long for dark)", "int", 0, min=0, max=1000, step=10),
+    _s("gain", "Gain (0 = auto; 4-16 for dark)", "float", 0.0, min=0.0, max=16.0, step=0.5),
     _s("awb", "White balance", "choice", "auto",
        choices=["auto", "incandescent", "tungsten", "fluorescent", "indoor",
                 "daylight", "cloudy"]),
@@ -72,6 +76,15 @@ def validate(partial, current):
     return merged
 
 
+def effective_framerate(values):
+    """The frame rate actually used: lowered so a fixed shutter fits in one frame."""
+    fps = int(values["framerate"])
+    shutter = int(values.get("shutter_ms") or 0)
+    if shutter > 0:
+        fps = min(fps, max(1, 1000 // shutter))
+    return fps
+
+
 def build_rpicam_cmd(values):
     """Build the rpicam-vid command from a full settings dict."""
     width, height = values["resolution"].split("x")
@@ -79,13 +92,19 @@ def build_rpicam_cmd(values):
     if values["fov"] == "full":
         cmd += ["--mode", FULL_MODE]
     cmd += ["--width", width, "--height", height,
-            "--framerate", str(values["framerate"]),
+            "--framerate", str(effective_framerate(values)),
             "--brightness", str(values["brightness"]),
             "--contrast", str(values["contrast"]),
             "--saturation", str(values["saturation"]),
             "--sharpness", str(values["sharpness"]),
             "--ev", str(values["ev"]),
             "--awb", values["awb"]]
+    shutter = int(values.get("shutter_ms") or 0)
+    if shutter > 0:
+        cmd += ["--shutter", str(shutter * 1000)]  # microseconds
+    gain = float(values.get("gain") or 0)
+    if gain > 0:
+        cmd += ["--gain", str(gain)]
     if values["hflip"]:
         cmd.append("--hflip")
     if values["vflip"]:
