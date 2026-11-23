@@ -16,6 +16,16 @@ MJPEG, `multipart/x-mixed-replace; boundary=frame`, one JPEG per part. Use as an
 ```
 `null` = no valid reading.
 
+### `GET /api/readings?since=<ISO time>&limit=<n>`
+The local reading log (`reading_log.py`). A background thread samples the probes and relay 1 once a minute into `readings.db` (next to `live_view.py`, not in git) and keeps 7 days, oldest dropped first. The Hub calls this when it comes back after Owen's PC was off and stores what it missed.
+
+`since` (optional): ISO 8601 with an offset (`Z` allowed; encode `+` as `%2B`). Only samples strictly after it are returned, oldest first. `limit`: 1–1000 (default 1000).
+```json
+{"samples": [{"ts": "2026-11-19T10:34:00+00:00", "probes": {"28-000000000001": 21.4}, "heater_on": false}],
+ "more": false, "oldest": "2026-11-12T10:35:00+00:00", "keep_days": 7}
+```
+`ts` is whole seconds, UTC, and identifies the sample (asking twice returns the same `ts`). `heater_on` is left out when the relay state was unknown. `more: true` means ask again with `since` = the last `ts`. Bad `since` gives `400`; `503` if the log could not be opened.
+
 ### `GET /api/camera/settings`
 ```json
 {"schema": [{"key": "fov", "label": "Field of view", "type": "choice",

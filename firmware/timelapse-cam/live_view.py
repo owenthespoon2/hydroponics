@@ -6,6 +6,7 @@ NOTE: binds 0.0.0.0 so the PC can reach it. Use on the home LAN only;
 there is no authentication. Do not expose this port to the internet.
 
 Routes: GET /  (web/index.html), GET /stream (MJPEG), GET /temp (probe JSON),
+GET /api/readings?since=<ISO time> (local reading log, see reading_log.py),
 GET/POST /api/camera/settings (see camera_settings.py),
 POST /api/device/shutdown and /api/device/reboot (need {"confirm": true}).
 One shared rpicam-vid process feeds every viewer. Settings persist in
@@ -19,12 +20,14 @@ import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "pi-thermostat"))
 import camera_settings  # noqa: E402
 import device_actions  # noqa: E402
+import reading_log  # noqa: E402
 import relay as relay_mod  # noqa: E402
 from camera_settings import build_rpicam_cmd  # noqa: E402,F401
 try:
@@ -36,6 +39,7 @@ SOI = b"\xff\xd8"
 EOI = b"\xff\xd9"
 SETTINGS_PATH = os.path.join(HERE, "camera-settings.json")
 INDEX_PATH = os.path.join(HERE, "web", "index.html")
+READINGS_PATH = os.path.join(HERE, "readings.db")
 settings = camera_settings.defaults()
 settings_lock = threading.Lock()
 
@@ -162,6 +166,7 @@ class Camera:
 
 camera = Camera()
 relay_ctl = None  # created in main()
+readings = None  # reading_log.ReadingLog, created in main()
 
 
 def _relay_off():
@@ -211,6 +216,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(500, {"error": "relay not available"})
             else:
                 self._json(200, relay_ctl.status())
+        elif path == "/api/readings":
+            self._readings()
         elif path == "/temp":
             body = json.dumps({"probes": read_probes()}).encode()
             self._send(200, "application/json", body)
@@ -227,6 +234,23 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, code, obj):
         self._send(code, "application/json", json.dumps(obj).encode())
+
+    def _readings(self):
+        if readings is None:
+            self._json(503, {"error": "reading log not available"})
+            return
+        query = parse_qs(urlsplit(self.path).query)
+        try:
+            since = query.get("since", [""])[0]
+            since_ts = reading_log.parse_since(since) if since else None
+            limit = int(query.get("limit", [reading_log.MAX_PAGE])[0])
+        except ValueError as e:
+            self._json(400, {"error": str(e)})
+            return
+        samples, more = readings.since(since_ts, limit)
+        self._json(200, {"samples": samples, "more": more,
+                         "oldest": readings.oldest(),
+                         "keep_days": readings.keep_s // 86400})
 
     def _device_action(self, name):
         try:
@@ -321,7 +345,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global relay_ctl
+    global relay_ctl, readings
     args = parse_args()
     settings.update(apply_cli(camera_settings.load(SETTINGS_PATH), args))
     camera.cmd = build_rpicam_cmd(settings)
@@ -332,6 +356,14 @@ def main():
     except RuntimeError as e:
         print(f"Relay unavailable: {e}", file=sys.stderr)
         sys.exit(1)
+    sampler = None
+    try:
+        readings = reading_log.ReadingLog(READINGS_PATH)
+        sampler = reading_log.Sampler(readings, read_probes, relay_ctl.status)
+        sampler.start()
+    except Exception as e:  # noqa: BLE001 - the live view still works without the log
+        print(f"Reading log unavailable: {e}", file=sys.stderr)
+        readings = None
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     server.daemon_threads = True
 
@@ -347,6 +379,8 @@ def main():
         pass
     finally:
         _relay_off()
+        if sampler is not None:
+            sampler.stop()
         server.server_close()
         camera.stop()
 
