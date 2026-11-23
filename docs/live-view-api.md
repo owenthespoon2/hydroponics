@@ -77,6 +77,15 @@ Success `200` with the status object above. A body that is not `{"on": true|fals
 Safety: the relay is switched off at start, on exit (normal, Ctrl+C, SIGTERM), before a reboot or shutdown, and by itself after `--relay-max-on` seconds (default 600). Options: `--relay-pin`, `--relay-active-high`, `--relay-max-on`.
 On the website this maps to `heating_enable` / `heating_disable` in `docs/device-api.md` (that file is not edited here).
 
+### `GET/POST /api/thermostat`: the heater control loop (runs on the Pi)
+`POST {"target_c": 22.0, "auto": true}` (either field alone is fine; `target_c` 10 to 32). Reply and `GET`:
+`{"target_c", "auto", "state": "off|manual-on|idle|heating|fault", "fault", "heater_on", "temp_c", "reading_age_s", "hard_max_c", "limits_c"}`.
+`400 {"error"}` for a bad value. Saved in `thermostat.json`, so target and Auto survive a restart.
+Control probe = first probe id. Heater on at target - 0.3 C, off at target + 0.2 C, at least 60 s between switches. Fail-safe: heater off at once if the reading is missing, older than 2 min, outside -5..60 C, or at 35 C or more. While heating, the relay's max-on timer is re-armed every 5 s, so a dead loop still ends with the relay off. `POST /api/relay` (the manual button) switches Auto off. On the website: `set_setpoint` -> `target_c` with `auto: true`; `heating_disable` -> `auto: false` and relay off.
+
+### `GET/POST /api/fast`: temporary fast readings
+`POST {"on": true, "minutes": 10}` (max 30) samples once a second (the DS18B20 limit is about 1 s) into the same 7-day log, then returns to once a minute by itself. `{"on": false}` stops it. Reply and `GET`: `{"active", "seconds_left", "every_s", "started", "ended"}` (ISO times, UTC). Not remembered over a restart. Log rows are still keyed by whole second, so `GET /api/readings?since=` never duplicates.
+
 ## Porting to another website
 
 * The page is `web/index.html` plus the `API_BASE` constant at the top of its script. Every fetch and the stream URL use it, so point it at another origin (or a proxy) to move the page.

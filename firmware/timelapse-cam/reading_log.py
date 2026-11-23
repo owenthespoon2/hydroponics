@@ -115,24 +115,77 @@ def take_sample(log, read_probes, relay_status, now=time.time):
         return False
 
 
-class Sampler:
-    """Daemon thread that calls take_sample every EVERY_S seconds until stop()."""
+FAST_EVERY_S = 1
+FAST_DEFAULT_S = 600
+FAST_MAX_S = 1800
 
-    def __init__(self, log, read_probes, relay_status, every_s=EVERY_S):
+
+class Sampler:
+    """Daemon thread that calls take_sample every EVERY_S seconds until stop().
+
+    Fast readings: start_fast(seconds) samples every FAST_EVERY_S (the DS18B20 needs about
+    750 ms per read, so one second is the real limit) until the time is up, then it drops back
+    to EVERY_S. Fast mode is temporary and not remembered over a restart."""
+
+    def __init__(self, log, read_probes, relay_status, every_s=EVERY_S,
+                 fast_every_s=FAST_EVERY_S, clock=time.time):
         self.log = log
         self.read_probes = read_probes
         self.relay_status = relay_status
         self.every_s = every_s
+        self.fast_every_s = fast_every_s
+        self.clock = clock
+        self._fast_until = None
+        self._fast_started = None
+        self._fast_ended = None
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
         self._thread.start()
 
+    def _fast_active(self, now):
+        with self._lock:
+            if self._fast_until is not None and now >= self._fast_until:
+                self._fast_ended = int(self._fast_until)
+                self._fast_until = None
+            return self._fast_until is not None
+
+    def start_fast(self, seconds=FAST_DEFAULT_S):
+        seconds = max(1, min(int(seconds), FAST_MAX_S))
+        now = self.clock()
+        with self._lock:
+            if self._fast_until is None:
+                self._fast_started = int(now)
+            self._fast_until = now + seconds
+        self._wake.set()
+
+    def stop_fast(self):
+        with self._lock:
+            if self._fast_until is not None:
+                self._fast_ended = int(self.clock())
+            self._fast_until = None
+        self._wake.set()
+
+    def fast_status(self):
+        now = self.clock()
+        active = self._fast_active(now)
+        with self._lock:
+            left = max(0, int(round(self._fast_until - now))) if active else 0
+            return {"active": active, "seconds_left": left, "every_s": self.fast_every_s,
+                    "started": iso_utc(self._fast_started) if self._fast_started else None,
+                    "ended": iso_utc(self._fast_ended) if self._fast_ended else None}
+
     def _run(self):
         while not self._stop.is_set():
-            take_sample(self.log, self.read_probes, self.relay_status)
-            self._stop.wait(self.every_s)
+            self._wake.clear()
+            began = time.monotonic()
+            take_sample(self.log, self.read_probes, self.relay_status, now=self.clock)
+            every = self.fast_every_s if self._fast_active(self.clock()) else self.every_s
+            self._wake.wait(max(0.0, every - (time.monotonic() - began)))
 
     def stop(self):
         self._stop.set()
+        self._wake.set()

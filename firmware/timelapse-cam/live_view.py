@@ -7,6 +7,8 @@ there is no authentication. Do not expose this port to the internet.
 
 Routes: GET /  (web/index.html), GET /stream (MJPEG), GET /temp (probe JSON),
 GET /api/readings?since=<ISO time> (local reading log, see reading_log.py),
+GET/POST /api/thermostat ({target_c, auto}; the heater control loop, see thermostat.py),
+GET/POST /api/fast ({on, minutes}; temporary 1 s readings),
 GET/POST /api/camera/settings (see camera_settings.py),
 POST /api/device/shutdown and /api/device/reboot (need {"confirm": true}).
 One shared rpicam-vid process feeds every viewer. Settings persist in
@@ -30,6 +32,7 @@ import camera_settings  # noqa: E402
 import device_actions  # noqa: E402
 import reading_log  # noqa: E402
 import relay as relay_mod  # noqa: E402
+import thermostat as thermostat_mod  # noqa: E402
 from camera_settings import build_rpicam_cmd  # noqa: E402,F401
 try:
     import ds18b20
@@ -41,6 +44,7 @@ EOI = b"\xff\xd9"
 SETTINGS_PATH = os.path.join(HERE, "camera-settings.json")
 INDEX_PATH = os.path.join(HERE, "web", "index.html")
 READINGS_PATH = os.path.join(HERE, "readings.db")
+THERMOSTAT_PATH = os.path.join(HERE, "thermostat.json")
 settings = camera_settings.defaults()
 settings_lock = threading.Lock()
 
@@ -74,6 +78,14 @@ def apply_cli(values, args):
         w, h = values["resolution"].split("x")
         values["resolution"] = f"{args.width or w}x{args.height or h}"
     return values
+
+
+def control_temp():
+    """Water temperature of the control probe (first probe id), or None."""
+    probes = read_probes()
+    for pid in sorted(probes):
+        return probes[pid]
+    return None
 
 
 def split_jpegs(buffer):
@@ -219,6 +231,8 @@ class Camera:
 camera = Camera()
 relay_ctl = None  # created in main()
 readings = None  # reading_log.ReadingLog, created in main()
+thermo = None  # thermostat.Thermostat, created in main()
+sampler = None  # reading_log.Sampler, created in main()
 
 
 def _relay_off():
@@ -268,6 +282,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(500, {"error": "relay not available"})
             else:
                 self._json(200, relay_ctl.status())
+        elif path == "/api/thermostat":
+            if thermo is None:
+                self._json(503, {"error": "thermostat not available"})
+            else:
+                self._json(200, thermo.status())
+        elif path == "/api/fast":
+            if sampler is None:
+                self._json(503, {"error": "reading log not available"})
+            else:
+                self._json(200, sampler.fast_status())
         elif path == "/api/readings":
             self._readings()
         elif path == "/temp":
@@ -319,6 +343,41 @@ class Handler(BaseHTTPRequestHandler):
                          else "rebooting"})
         threading.Timer(1.0, _run_device_action, args=(name,)).start()
 
+    def _read_body(self):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(length) or b"null")
+        except ValueError:
+            return None
+
+    def _thermostat_post(self):
+        if thermo is None:
+            self._json(503, {"error": "thermostat not available"})
+            return
+        try:
+            self._json(200, thermo.configure(self._read_body()))
+        except ValueError as e:
+            self._json(400, {"error": str(e)})
+        except OSError as e:
+            self._json(500, {"error": f"could not save: {e}"})
+
+    def _fast_post(self):
+        body = self._read_body()
+        if sampler is None:
+            self._json(503, {"error": "reading log not available"})
+        elif not isinstance(body, dict) or not isinstance(body.get("on"), bool):
+            self._json(400, {"error": 'body must be {"on": true|false, "minutes"?: n}'})
+        else:
+            if body["on"]:
+                minutes = body.get("minutes", reading_log.FAST_DEFAULT_S // 60)
+                if isinstance(minutes, bool) or not isinstance(minutes, (int, float)) or minutes <= 0:
+                    self._json(400, {"error": "minutes must be a positive number"})
+                    return
+                sampler.start_fast(minutes * 60)
+            else:
+                sampler.stop_fast()
+            self._json(200, sampler.fast_status())
+
     def _relay_post(self):
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -331,6 +390,8 @@ class Handler(BaseHTTPRequestHandler):
         if relay_ctl is None:
             self._json(500, {"error": "relay not available"})
             return
+        if thermo is not None:
+            thermo.manual_override()  # a hand switch ends Auto so they never fight
         try:
             if body["on"]:
                 relay_ctl.on()
@@ -350,6 +411,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
         if path == "/api/relay":
             self._relay_post()
+            return
+        if path == "/api/thermostat":
+            self._thermostat_post()
+            return
+        if path == "/api/fast":
+            self._fast_post()
             return
         if path != "/api/camera/settings":
             self._send(404, "text/plain", b"not found")
@@ -397,7 +464,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global relay_ctl, readings
+    global relay_ctl, readings, thermo, sampler
     args = parse_args()
     settings.update(apply_cli(camera_settings.load(SETTINGS_PATH), args))
     camera.cmd = build_rpicam_cmd(settings)
@@ -408,7 +475,6 @@ def main():
     except RuntimeError as e:
         print(f"Relay unavailable: {e}", file=sys.stderr)
         sys.exit(1)
-    sampler = None
     try:
         readings = reading_log.ReadingLog(READINGS_PATH)
         sampler = reading_log.Sampler(readings, read_probes, relay_ctl.status)
@@ -416,6 +482,8 @@ def main():
     except Exception as e:  # noqa: BLE001 - the live view still works without the log
         print(f"Reading log unavailable: {e}", file=sys.stderr)
         readings = None
+    thermo = thermostat_mod.Thermostat(relay_ctl, control_temp, THERMOSTAT_PATH)
+    thermo.start()
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     server.daemon_threads = True
 
@@ -430,6 +498,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        thermo.stop()
         _relay_off()
         if sampler is not None:
             sampler.stop()
