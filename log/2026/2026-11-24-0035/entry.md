@@ -6,6 +6,8 @@ type: update
 title: "Day 5: no sprouts yet, green pepper seeds sown"
 day: 5
 tags: [piman, seeds, heater]
+photos:
+  - file: daily-2026-11-24.jpg
 source: spoon-archive
 ---
 

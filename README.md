@@ -3,11 +3,11 @@
 A long-term, hands-on hydroponics project in Nagaoka, Niigata. It starts as a single passive jar and grows, over years, into a heated, sensor-monitored, multi-crop system. This repo is the record: a log with photos, one file per crop run, and the notes and code behind the build.
 
 <!-- status:start -->
-**Current run:** [Run 1, Premium Ruby tomato](runs/2026-11-tomato-01.md) · active · day 5 · started 2026-11-19
+**Current run:** [Run 1, Premium Ruby tomato](runs/2026-11-tomato-01.md) · active · day 6 · started 2026-11-19
 
-![Latest photo](log/2026/2026-11-23-1200/daily-2026-11-23.jpg)
+![Latest photo](log/2026/2026-11-24-0035/daily-2026-11-24.jpg)
 
-_Latest photo: 2026-11-23 12:00 JST_
+_Latest photo: 2026-11-24 00:35 JST_
 <!-- status:end -->
 
 <!-- build:start -->
